@@ -39,6 +39,9 @@ class CouncilGUI:
         self.council = None
         self.current_result = None
         self.animation_running = False
+        self.available_models = []  # Store all available models
+        self.selected_models = []  # Store user-selected models
+        self.model_checkboxes = {}  # Store checkbox variables
         
         self.setup_ui()
         self.check_availability()
@@ -201,6 +204,97 @@ class CouncilGUI:
         
         self.submit_btn.bind("<Enter>", on_enter)
         self.submit_btn.bind("<Leave>", on_leave)
+        
+        # Model Selection card
+        model_selection_card = tk.Frame(left_panel, bg=self.colors["card"], relief=tk.FLAT, bd=0)
+        model_selection_card.pack(fill=tk.X, pady=(0, 10))
+        
+        model_selection_header = tk.Frame(model_selection_card, bg=self.colors["primary"], height=40)
+        model_selection_header.pack(fill=tk.X)
+        model_selection_header.pack_propagate(False)
+        
+        model_selection_title = tk.Label(
+            model_selection_header,
+            text="🤖 Select Models",
+            font=("Segoe UI", 11, "bold"),
+            bg=self.colors["primary"],
+            fg="white",
+            padx=15,
+            pady=10
+        )
+        model_selection_title.pack(side=tk.LEFT)
+        
+        # Model selection content frame
+        model_selection_content = tk.Frame(model_selection_card, bg=self.colors["card"], padx=15, pady=12)
+        model_selection_content.pack(fill=tk.X)
+        
+        # Dropdown-style model selector
+        dropdown_frame = tk.Frame(model_selection_content, bg=self.colors["card"])
+        dropdown_frame.pack(fill=tk.X)
+        
+        # Label for dropdown
+        model_label = tk.Label(
+            dropdown_frame,
+            text="Ollama Model",
+            font=("Segoe UI", 10),
+            bg=self.colors["card"],
+            fg=self.colors["text"],
+            anchor=tk.W
+        )
+        model_label.pack(anchor=tk.W, pady=(0, 5))
+        
+        # Dropdown button frame (styled like a dropdown)
+        self.model_dropdown_frame = tk.Frame(
+            dropdown_frame,
+            bg="white",
+            relief=tk.SOLID,
+            bd=1,
+            cursor="hand2"
+        )
+        self.model_dropdown_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        # Selected models display
+        self.model_dropdown_text = tk.Label(
+            self.model_dropdown_frame,
+            text="Select models...",
+            font=("Segoe UI", 10),
+            bg="white",
+            fg="#666666",
+            anchor=tk.W,
+            padx=10,
+            pady=10
+        )
+        self.model_dropdown_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        
+        # Dropdown arrow
+        dropdown_arrow = tk.Label(
+            self.model_dropdown_frame,
+            text="▼",
+            font=("Segoe UI", 8),
+            bg="white",
+            fg="#666666",
+            padx=10
+        )
+        dropdown_arrow.pack(side=tk.RIGHT)
+        
+        # Bind click to open dropdown
+        self.model_dropdown_frame.bind("<Button-1>", self.open_model_selection_dialog)
+        self.model_dropdown_text.bind("<Button-1>", self.open_model_selection_dialog)
+        dropdown_arrow.bind("<Button-1>", self.open_model_selection_dialog)
+        
+        # Hover effect
+        def on_enter(e):
+            self.model_dropdown_frame.config(bg="#f5f5f5")
+            self.model_dropdown_text.config(bg="#f5f5f5")
+            dropdown_arrow.config(bg="#f5f5f5")
+        
+        def on_leave(e):
+            self.model_dropdown_frame.config(bg="white")
+            self.model_dropdown_text.config(bg="white")
+            dropdown_arrow.config(bg="white")
+        
+        self.model_dropdown_frame.bind("<Enter>", on_enter)
+        self.model_dropdown_frame.bind("<Leave>", on_leave)
         
         # Status card with animation
         status_card = tk.Frame(left_panel, bg=self.colors["card"], relief=tk.FLAT, bd=0)
@@ -434,61 +528,84 @@ class CouncilGUI:
             self.root.after(50, self.animate_progress)
     
     def check_availability(self):
-        """Check which models are available"""
+        """Check which models are available - Auto-detect Ollama models"""
         self.update_status("🔍 Checking model availability...", "blue")
         
         def check():
-            # Check Ollama
-            is_ollama_connected, ollama_models = self.check_ollama_connection()
+            # Check Ollama and get ALL installed models
+            is_ollama_connected, ollama_models_base = self.check_ollama_connection()
             
-            # Filter available models
+            # Get full model names from Ollama (with tags like :latest, :4b, etc.)
+            ollama_full_models = []
+            if is_ollama_connected:
+                try:
+                    client = ollama.Client()
+                    models_list = client.list()
+                    if isinstance(models_list, dict) and 'models' in models_list:
+                        for model in models_list['models']:
+                            model_name = model.get('model') or model.get('name', '')
+                            if model_name:
+                                ollama_full_models.append(model_name)
+                                print(f"  ✓ Auto-detected Ollama model: {model_name}")
+                except Exception as e:
+                    print(f"  ⚠️ Error getting full Ollama model list: {e}")
+            
+            # Build available models list
             available_models = []
             skipped_models = []
             
+            # 1. Auto-detect ALL Ollama models (not just from config)
+            if is_ollama_connected and ollama_full_models:
+                for model_name in ollama_full_models:
+                    # Create model config dynamically
+                    model_config = {
+                        "name": model_name,
+                        "provider": "ollama"
+                    }
+                    available_models.append(model_config)
+                    print(f"  ✓ Added Ollama model: {model_name}")
+            
+            # 2. Add API models from config (if they have keys)
             for model_config in MODELS:
                 model_name = model_config["name"]
                 provider = model_config["provider"]
                 
                 if provider == "ollama":
-                    if is_ollama_connected:
-                        if model_name in ollama_models:
-                            available_models.append(model_config)
-                            print(f"  ✓ Ollama model '{model_name}' is available")
-                        else:
-                            skipped_models.append(f"{model_name} (not in Ollama - have: {ollama_models})")
-                            print(f"  ✗ Ollama model '{model_name}' not found. Available: {ollama_models}")
-                    else:
-                        skipped_models.append(f"{model_name} (Ollama not running)")
-                        print(f"  ✗ Ollama model '{model_name}' - Ollama service not running")
+                    # Skip - we already auto-detected all Ollama models above
+                    # This prevents duplicates if model is in both config and auto-detected
+                    continue
                 else:
+                    # For API models, check if API key exists
                     api_key = model_config.get("api_key", "")
                     if api_key:
-                        available_models.append(model_config)
-                        print(f"  ✓ {provider} model '{model_name}' has API key")
+                        # Check if not already added (avoid duplicates)
+                        if not any(m["name"] == model_name and m["provider"] == provider 
+                                  for m in available_models):
+                            available_models.append(model_config)
+                            print(f"  ✓ {provider} model '{model_name}' has API key")
                     else:
                         skipped_models.append(f"{model_name} (no API key)")
                         print(f"  ✗ {provider} model '{model_name}' - no API key")
             
             if skipped_models:
-                print(f"\n  Skipped {len(skipped_models)} model(s)")
+                print(f"\n  Skipped {len(skipped_models)} API model(s) (no keys)")
+            
+            # Store available models and populate checkboxes
+            self.available_models = available_models
+            self.root.after(0, lambda: self.populate_model_checkboxes(available_models))
             
             if available_models:
-                try:
-                    logger.info(f"Initializing council with {len(available_models)} models")
-                    self.council = Council(available_models, discussion_rounds=DISCUSSION_ROUNDS)
-                    self.root.after(0, lambda: self.update_status(
-                        f"✅ Ready - {len(available_models)} models available", "green"
-                    ))
-                    self.root.after(0, lambda: self.model_count_label.config(
-                        text=f"🤖 {len(available_models)} Active Models"
-                    ))
-                    logger.info("Council initialized successfully")
-                except Exception as e:
-                    error_msg = str(e)
-                    logger.error(f"Failed to initialize council: {error_msg}", exc_info=True)
-                    self.root.after(0, lambda: self.update_status(
-                        f"❌ Error: {error_msg}", "red"
-                    ))
+                ollama_count = sum(1 for m in available_models if m["provider"] == "ollama")
+                api_count = len(available_models) - ollama_count
+                status_msg = f"✅ {len(available_models)} models available"
+                if ollama_count > 0:
+                    status_msg += f" ({ollama_count} Ollama"
+                if api_count > 0:
+                    status_msg += f"{', ' if ollama_count > 0 else ' ('}{api_count} API" if ollama_count > 0 else f" ({api_count} API"
+                if ollama_count > 0 or api_count > 0:
+                    status_msg += ")"
+                status_msg += " - Select models to use"
+                self.root.after(0, lambda: self.update_status(status_msg, "green"))
             else:
                 self.root.after(0, lambda: self.update_status(
                     "⚠️ No models available. Check API keys or Ollama.", "red"
@@ -496,23 +613,278 @@ class CouncilGUI:
         
         threading.Thread(target=check, daemon=True).start()
     
+    def populate_model_checkboxes(self, available_models):
+        """Store available models and update dropdown display"""
+        self.available_models = available_models
+        
+        if not available_models:
+            self.model_dropdown_text.config(
+                text="No models available",
+                fg=self.colors["error"]
+            )
+            return
+        
+        # Auto-select all by default
+        self.model_checkboxes = {}
+        for model_config in available_models:
+            model_name = model_config["name"]
+            var = tk.BooleanVar(value=True)
+            self.model_checkboxes[model_name] = var
+        
+        # Update dropdown text to show selected count
+        self.update_dropdown_display()
+        
+        # Auto-apply selection
+        self.apply_model_selection()
+    
+    def update_dropdown_display(self):
+        """Update the dropdown text to show selected models"""
+        if not self.available_models:
+            return
+        
+        selected_count = sum(1 for var in self.model_checkboxes.values() if var.get())
+        total_count = len(self.available_models)
+        
+        if selected_count == 0:
+            self.model_dropdown_text.config(
+                text="No models selected",
+                fg="#666666"
+            )
+        elif selected_count == total_count:
+            self.model_dropdown_text.config(
+                text=f"All models selected ({total_count})",
+                fg="#333333"
+            )
+        else:
+            selected_names = [name for name, var in self.model_checkboxes.items() if var.get()]
+            if len(selected_names) <= 2:
+                display_text = ", ".join(selected_names)
+            else:
+                display_text = f"{selected_names[0]}, {selected_names[1]}, +{len(selected_names)-2} more"
+            
+            self.model_dropdown_text.config(
+                text=display_text,
+                fg="#333333"
+            )
+    
+    def open_model_selection_dialog(self, event=None):
+        """Open a popup dialog for model selection"""
+        if not self.available_models:
+            messagebox.showinfo("No Models", "No models are available. Please check your Ollama connection.")
+            return
+        
+        # Create popup window
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Select Models")
+        dialog.geometry("400x500")
+        dialog.configure(bg="white")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        # Center the dialog
+        dialog.update_idletasks()
+        x = (dialog.winfo_screenwidth() // 2) - (dialog.winfo_width() // 2)
+        y = (dialog.winfo_screenheight() // 2) - (dialog.winfo_height() // 2)
+        dialog.geometry(f"+{x}+{y}")
+        
+        # Header
+        header = tk.Frame(dialog, bg=self.colors["primary"], height=50)
+        header.pack(fill=tk.X)
+        header.pack_propagate(False)
+        
+        header_label = tk.Label(
+            header,
+            text="Select Models to Use",
+            font=("Segoe UI", 12, "bold"),
+            bg=self.colors["primary"],
+            fg="white",
+            pady=15
+        )
+        header_label.pack()
+        
+        # Scrollable frame for checkboxes
+        canvas_frame = tk.Frame(dialog, bg="white")
+        canvas_frame.pack(fill=tk.BOTH, expand=True, padx=15, pady=15)
+        
+        canvas = tk.Canvas(canvas_frame, bg="white", highlightthickness=0)
+        scrollbar = ttk.Scrollbar(canvas_frame, orient="vertical", command=canvas.yview)
+        checkbox_frame = tk.Frame(canvas, bg="white")
+        
+        def update_scroll(event=None):
+            canvas.configure(scrollregion=canvas.bbox("all"))
+        
+        checkbox_frame.bind("<Configure>", update_scroll)
+        canvas.create_window((0, 0), window=checkbox_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Create checkboxes
+        for model_config in self.available_models:
+            model_name = model_config["name"]
+            provider = model_config["provider"]
+            
+            checkbox_item = tk.Frame(checkbox_frame, bg="white")
+            checkbox_item.pack(fill=tk.X, pady=5)
+            
+            var = self.model_checkboxes.get(model_name)
+            if var is None:
+                var = tk.BooleanVar(value=False)
+                self.model_checkboxes[model_name] = var
+            
+            checkbox = tk.Checkbutton(
+                checkbox_item,
+                text=f"{model_name}",
+                variable=var,
+                font=("Segoe UI", 10),
+                bg="white",
+                fg="#333333",
+                selectcolor="white",
+                activebackground="white",
+                activeforeground="#333333",
+                cursor="hand2",
+                command=self.update_dropdown_display
+            )
+            checkbox.pack(side=tk.LEFT, anchor=tk.W)
+            
+            provider_label = tk.Label(
+                checkbox_item,
+                text=f"({provider})",
+                font=("Segoe UI", 9),
+                bg="white",
+                fg="#666666"
+            )
+            provider_label.pack(side=tk.LEFT, padx=(5, 0))
+        
+        # Buttons
+        button_frame = tk.Frame(dialog, bg="white")
+        button_frame.pack(fill=tk.X, padx=15, pady=15)
+        
+        def select_all():
+            for var in self.model_checkboxes.values():
+                var.set(True)
+            self.update_dropdown_display()
+        
+        def deselect_all():
+            for var in self.model_checkboxes.values():
+                var.set(False)
+            self.update_dropdown_display()
+        
+        def apply_and_close():
+            self.apply_model_selection()
+            dialog.destroy()
+        
+        select_all_btn = tk.Button(
+            button_frame,
+            text="Select All",
+            font=("Segoe UI", 9),
+            bg="#e0e0e0",
+            fg="#333333",
+            relief=tk.FLAT,
+            padx=15,
+            pady=8,
+            cursor="hand2",
+            command=select_all
+        )
+        select_all_btn.pack(side=tk.LEFT, padx=(0, 5))
+        
+        deselect_all_btn = tk.Button(
+            button_frame,
+            text="Deselect All",
+            font=("Segoe UI", 9),
+            bg="#e0e0e0",
+            fg="#333333",
+            relief=tk.FLAT,
+            padx=15,
+            pady=8,
+            cursor="hand2",
+            command=deselect_all
+        )
+        deselect_all_btn.pack(side=tk.LEFT)
+        
+        apply_btn = tk.Button(
+            button_frame,
+            text="Apply",
+            font=("Segoe UI", 10, "bold"),
+            bg=self.colors["success"],
+            fg="white",
+            relief=tk.FLAT,
+            padx=20,
+            pady=8,
+            cursor="hand2",
+            command=apply_and_close
+        )
+        apply_btn.pack(side=tk.RIGHT)
+        
+        # Update scroll region
+        canvas.update_idletasks()
+        canvas.configure(scrollregion=canvas.bbox("all"))
+    
+    def apply_model_selection(self):
+        """Apply the selected models and initialize council"""
+        # Get selected models
+        selected_models = []
+        for model_config in self.available_models:
+            model_name = model_config["name"]
+            if model_name in self.model_checkboxes and self.model_checkboxes[model_name].get():
+                selected_models.append(model_config)
+        
+        if not selected_models:
+            messagebox.showwarning("No Models Selected", "Please select at least one model to use.")
+            return
+        
+        self.selected_models = selected_models
+        
+        # Initialize council with selected models
+        def init_council():
+            try:
+                logger.info(f"Initializing council with {len(selected_models)} selected models")
+                self.council = Council(selected_models, discussion_rounds=DISCUSSION_ROUNDS)
+                self.root.after(0, lambda: self.update_status(
+                    f"✅ Ready - {len(selected_models)} model(s) active", "green"
+                ))
+                self.root.after(0, lambda: self.model_count_label.config(
+                    text=f"🤖 {len(selected_models)} Active Models"
+                ))
+                logger.info("Council initialized successfully")
+            except Exception as e:
+                error_msg = str(e)
+                logger.error(f"Failed to initialize council: {error_msg}", exc_info=True)
+                self.root.after(0, lambda: self.update_status(
+                    f"❌ Error: {error_msg}", "red"
+                ))
+                self.root.after(0, lambda: messagebox.showerror("Initialization Error", error_msg))
+        
+        threading.Thread(target=init_council, daemon=True).start()
+    
     def check_ollama_connection(self):
-        """Check if Ollama is running"""
+        """Check if Ollama is running and return base model names for compatibility"""
         try:
             client = ollama.Client()
             models_list = client.list()
-            # Ollama returns ListResponse object, access via .models attribute
-            if hasattr(models_list, 'models') and models_list.models:
-                # Extract base names (remove :latest, :7b, etc. tags)
+            
+            # Ollama client.list() returns a dict with 'models' key
+            if isinstance(models_list, dict) and 'models' in models_list:
+                models = models_list['models']
+                # Extract base names (remove :latest, :4b, etc. tags) for matching
+                # This is kept for backward compatibility but we'll get full names in check_availability
                 available_models = []
-                for model in models_list.models:
-                    # Model object has .model attribute (not 'name')
-                    base_name = model.model.split(':')[0]
-                    if base_name not in available_models:
-                        available_models.append(base_name)
-                print(f"  ✓ Ollama detected: {len(available_models)} models found")
-                print(f"  ✓ Ollama models: {available_models}")
-                return True, available_models
+                for model in models:
+                    # Each model is a dict with 'model' or 'name' key
+                    model_name = model.get('model') or model.get('name', '')
+                    if model_name:
+                        base_name = model_name.split(':')[0]
+                        if base_name not in available_models:
+                            available_models.append(base_name)
+                
+                if available_models:
+                    print(f"  ✓ Ollama detected: {len(available_models)} base model(s) found")
+                    print(f"  ✓ Ollama models: {available_models}")
+                    return True, available_models
+                else:
+                    print(f"  ✗ Ollama is running but no models found")
+                    return True, []
             else:
                 print(f"  ✗ Ollama is running but no models found")
                 return True, []  # Ollama is running but no models

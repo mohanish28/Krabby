@@ -23,15 +23,23 @@ MAX_RETRIES = int(os.getenv("MAX_RETRIES", "3"))
 MODELS = [
     # Ollama Models (Local, Free, No API key needed)
     {
-        "name": "llama3.2",
+        "name": "qwen3-coder:30b",
         "provider": "ollama"
     },
     {
-        "name": "mistral",
+        "name": "deepseek-r1:8b",
         "provider": "ollama"
     },
     {
-        "name": "phi3",
+        "name": "llama3:latest",
+        "provider": "ollama"
+    },
+    {
+        "name": "mistral:latest",
+        "provider": "ollama"
+    },
+    {
+        "name": "gemma3:4b",
         "provider": "ollama"
     },
     

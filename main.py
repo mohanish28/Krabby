@@ -18,18 +18,27 @@ def check_ollama_connection():
     try:
         client = ollama.Client()
         models_list = client.list()
-        # Ollama returns ListResponse object, access via .models attribute
-        if hasattr(models_list, 'models') and models_list.models:
-            # Extract base names (remove :latest, :7b, etc. tags)
+        
+        # Ollama client.list() returns a dict with 'models' key
+        if isinstance(models_list, dict) and 'models' in models_list:
+            models = models_list['models']
+            # Extract base names (remove :latest, :4b, etc. tags) for matching
             available_models = []
-            for model in models_list.models:
-                # Model object has .model attribute (not 'name')
-                base_name = model.model.split(':')[0]
-                if base_name not in available_models:
-                    available_models.append(base_name)
-            print(f"  ✓ Ollama detected: {len(available_models)} models found")
-            print(f"  ✓ Ollama models: {available_models}")
-            return True, available_models
+            for model in models:
+                # Each model is a dict with 'model' or 'name' key
+                model_name = model.get('model') or model.get('name', '')
+                if model_name:
+                    base_name = model_name.split(':')[0]
+                    if base_name not in available_models:
+                        available_models.append(base_name)
+            
+            if available_models:
+                print(f"  ✓ Ollama detected: {len(available_models)} models found")
+                print(f"  ✓ Ollama models: {available_models}")
+                return True, available_models
+            else:
+                print(f"  ✗ Ollama is running but no models found")
+                return True, []
         else:
             print(f"  ✗ Ollama is running but no models found")
             return True, []  # Ollama is running but no models
@@ -95,27 +104,48 @@ def main():
         print(f"  {service}: {status}")
     print()
     
-    # Filter models to only use available ones
+    # Auto-detect ALL Ollama models and combine with API models
     available_models = []
     skipped_models = []
     
+    # 1. Auto-detect ALL Ollama models (not just from config)
+    ollama_full_models = []
+    if is_ollama_connected:
+        try:
+            client = ollama.Client()
+            models_list = client.list()
+            if isinstance(models_list, dict) and 'models' in models_list:
+                for model in models_list['models']:
+                    model_name = model.get('model') or model.get('name', '')
+                    if model_name:
+                        ollama_full_models.append(model_name)
+                        # Create model config dynamically
+                        model_config = {
+                            "name": model_name,
+                            "provider": "ollama"
+                        }
+                        available_models.append(model_config)
+                        print(f"✓ Auto-detected Ollama model: {model_name}")
+        except Exception as e:
+            print(f"⚠️ Error getting full Ollama model list: {e}")
+    
+    # 2. Add API models from config (if they have keys)
     for model_config in MODELS:
         model_name = model_config["name"]
         provider = model_config["provider"]
         
         if provider == "ollama":
-            if is_ollama_connected and model_name in ollama_models:
-                available_models.append(model_config)
-                print(f"✓ Ollama model '{model_name}' is available")
-            else:
-                skipped_models.append(f"{model_name} (Ollama not running or model not installed)")
-                print(f"✗ Ollama model '{model_name}' not available")
+            # Skip - we already auto-detected all Ollama models above
+            continue
         else:
             # For API models, check if API key exists
             api_key = model_config.get("api_key", "")
             if api_key:
-                available_models.append(model_config)
-                print(f"✓ {provider} model '{model_name}' has API key")
+                # Check if not already added (avoid duplicates)
+                if not any(m["name"] == model_name and m["provider"] == provider 
+                          for m in available_models):
+                    available_models.append(model_config)
+                    print(f"✓ {provider} model '{model_name}' has API key")
             else:
                 skipped_models.append(f"{model_name} (no API key)")
                 print(f"✗ {provider} model '{model_name}' - no API key")

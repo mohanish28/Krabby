@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional
 import ollama
 import requests
-import google.generativeai as genai
+# import google.generativeai as genai  # Deprecated - use google.genai instead if needed
 from groq import Groq
 from together import Together
 import cohere
@@ -132,13 +132,17 @@ class HuggingFaceModel(BaseModel):
             raise Exception(f"Error generating response from HuggingFace {self.name}: {str(e)}")
 
 class GoogleModel(BaseModel):
-    """Wrapper for Google Gemini API (Free)"""
+    """Wrapper for Google Gemini API (Free) - DEPRECATED"""
     
     def __init__(self, name: str, api_key: str, **kwargs):
         super().__init__(name)
-        if not api_key:
-            raise ValueError("Google API key is required")
-        genai.configure(api_key=api_key)
+        raise NotImplementedError(
+            "Google Gemini support is deprecated. The google.generativeai package is no longer maintained. "
+            "Please use google.genai instead or use other model providers."
+        )
+        # if not api_key:
+        #     raise ValueError("Google API key is required")
+        # genai.configure(api_key=api_key)
         # Store API key and model name separately
         self.api_key = api_key
         self.model_name = name
